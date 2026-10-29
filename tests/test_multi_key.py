@@ -71,3 +71,29 @@ async def test_one_account_failing_keeps_the_other(two_accounts, mock):
 def test_cloud_with_api_key_env_is_rejected():
     with pytest.raises(ConfigError, match="site_manager_key_env"):
         config.parse_consoles(json.dumps([{"name": "X", "console_id": "A" * 20, "api_key_env": "K"}]))
+
+
+async def test_discover_consoles_per_key(two_accounts, mock, monkeypatch):
+    monkeypatch.setenv("UNIFI_CONSOLE_SECRETS", json.dumps({"SITE_MANAGER_API_KEY_FWB": "test-key-fwb-123"}))
+    config.reset()
+    app.set_runtime(None)
+
+    def hosts(request):
+        key = request.headers["X-API-Key"]
+        ids = {SM_KEY: [CLOUD_ID], OTHER_KEY: [OTHER_ID], "test-key-fwb-123": ["DDDD" * 15 + ":1"]}[key]
+        return httpx.Response(200, json={"data": [{"id": i, "type": "console", "owner": True} for i in ids]})
+
+    def devices(request):
+        key = request.headers["X-API-Key"]
+        hid = {SM_KEY: CLOUD_ID, OTHER_KEY: OTHER_ID, "test-key-fwb-123": "DDDD" * 15 + ":1"}[key]
+        return httpx.Response(200, json={"data": [device(hid, "GW-X1", "4.1.13") | {"hostName": "Standort"}]})
+
+    mock.get(f"{SM}/v1/hosts").mock(side_effect=hosts)
+    mock.get(f"{SM}/v1/devices").mock(side_effect=devices)
+    out = await call("discover_consoles")
+    keys = {k["site_manager_key_env"]: k for k in out["keys"]}
+    assert set(keys) == {"SITE_MANAGER_API_KEY", "SITE_MANAGER_API_KEY_B", "SITE_MANAGER_API_KEY_FWB"}
+    assert keys["SITE_MANAGER_API_KEY"]["consoles"][0]["configured_as"] == "Kunde A"
+    assert keys["SITE_MANAGER_API_KEY_FWB"]["consoles"][0]["configured_as"] is None
+    assert keys["SITE_MANAGER_API_KEY_FWB"]["consoles"][0]["name"] == "Standort"
+    assert "test-key-fwb-123" not in json.dumps(out)

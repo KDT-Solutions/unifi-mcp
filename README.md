@@ -140,6 +140,7 @@ Parameter `console` = Name oder `console_id`, `site` = Site-ID, interner Name (`
 | Tool | Beschreibung |
 |---|---|
 | `get_version` | Version, Commit-Hash und Build-Zeit |
+| `discover_consoles` | Alle Konsolen, die die eingetragenen Site-Manager-Keys sehen (pro Key), mit `console_id` und ob sie schon konfiguriert sind - Vorlage für `CONSOLES_JSON` |
 | `list_consoles` | Alle Konsolen mit Status (online/offline), Modell, Firmware, Update, Modus, Schreibrechte, Legacy |
 | `list_sites(console)` | Sites, optional einer Konsole |
 | `site_health(console, site)` | Ohne `console`: Übersicht aller Konsolen aus der Site Manager API. Mit `console`: WAN-Verfügbarkeit, ISP, Gateway, Geräte online/offline, Clients (gesamt/kabel/WLAN), kritische Meldungen, offene Alarme (Legacy) |

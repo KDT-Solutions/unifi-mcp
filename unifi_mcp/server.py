@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import hmac
+import json
 import logging
 import os
 import sys
@@ -130,11 +131,27 @@ async def _run_http_server(api_key: str, host: str, port: int) -> None:
     app = _build_http_app(api_key, host)
     rt = runtime()  # Konsolen-Datei beim Start prüfen, nicht erst beim ersten Tool-Aufruf
     logger.info("unifi-mcp %s: %d Konsole(n) geladen", __version__, len(rt.consoles))
+    if not rt.consoles:
+        await _log_discovery()
     config = uvicorn.Config(app, host=host, port=port, log_level="info", access_log=False, proxy_headers=False)
     try:
         await uvicorn.Server(config).serve()
     finally:
         await rt.aclose()
+
+
+async def _log_discovery() -> None:
+    """Ohne konfigurierte Konsolen: sichtbare Konsolen je Site-Manager-Key ins Log schreiben
+    (Hilfe für CONSOLES_JSON). Keine Keys oder Fehler verhindern den Start nicht."""
+    try:
+        result = await asyncio.wait_for(tools_read.discover(), timeout=60)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Konsolen-Erkennung fehlgeschlagen (%s)", type(exc).__name__)
+        return
+    if not result:
+        logger.info("Konsolen-Erkennung: kein Site-Manager-Key gesetzt")
+    for entry in result:
+        logger.info("Konsolen-Erkennung: %s", json.dumps(entry, ensure_ascii=False))
 
 
 def main() -> None:

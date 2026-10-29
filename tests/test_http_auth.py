@@ -110,7 +110,7 @@ async def test_tool_list(server):
     expected = {
         "get_version", "list_consoles", "list_sites", "site_health", "list_devices", "device_info", "list_clients",
         "client_info", "list_networks", "list_wlans", "list_firewall_rules", "list_vpn", "wan_status", "list_events",
-        "firmware_overview", "get_audit_log", "device_restart", "port_power_cycle", "client_block", "client_unblock",
+        "firmware_overview", "get_audit_log", "discover_consoles", "device_restart", "port_power_cycle", "client_block", "client_unblock",
         "client_reconnect", "wlan_set_enabled", "create_guest_voucher", "device_upgrade", "set_console_writes",
         "prepare_change", "execute_plan", "rollback_change",
     }

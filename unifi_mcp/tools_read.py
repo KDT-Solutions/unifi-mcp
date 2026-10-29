@@ -12,7 +12,7 @@ from pydantic import StrictBool
 
 from . import resolve
 from .app import runtime, tool
-from .config import Console
+from .config import DEFAULT_SITE_MANAGER_KEY_ENV as DEFAULT_KEY, Console
 from .errors import GuardError, UnifiError
 from .redact import mask_secrets
 from .version import version_info
@@ -159,6 +159,56 @@ def subnet_of(host_ip: str | None, prefix: int | None) -> str | None:
 async def get_version() -> dict[str, str]:
     """Version, Commit-Hash und Build-Zeit des laufenden unifi-mcp."""
     return version_info()
+
+
+def site_manager_key_names() -> list[str]:
+    """Alle eingetragenen Site-Manager-Keys: SITE_MANAGER_API_KEY, SITE_MANAGER_API_KEY_* aus der Umgebung
+    oder UNIFI_CONSOLE_SECRETS und alle site_manager_key_env der Konsolen - nur Namen mit Wert."""
+    import os
+    import re
+
+    rt = runtime()
+    pattern = re.compile(r"^SITE_MANAGER_API_KEY(_[A-Z0-9_]+)?$")
+    names = {DEFAULT_KEY} | {c.site_manager_key_env for c in rt.consoles}
+    names |= {k for k in os.environ if pattern.fullmatch(k)} | {k for k in rt.settings.console_secrets if pattern.fullmatch(k)}
+    return sorted(n for n in names if rt.settings.secret(n))
+
+
+async def discover() -> list[dict[str, Any]]:
+    """Konsolen, die jeder Site-Manager-Key sieht, mit Hinweis, ob sie schon konfiguriert sind."""
+    rt = runtime()
+    configured = {c.console_id: c.name for c in rt.consoles if c.console_id}
+    out = []
+    for key_env in site_manager_key_names():
+        client = rt.sitemanager(key_env)
+        entry: dict[str, Any] = {"site_manager_key_env": key_env}
+        try:
+            hosts = await client.hosts()
+            devices = {h.get("hostId"): h for h in await client.devices()}
+        except Exception as exc:  # noqa: BLE001
+            entry["error"] = error_text(exc)
+            out.append(entry)
+            continue
+        consoles = []
+        for h in hosts:
+            dev = devices.get(h.get("id")) or {}
+            own = next((d for d in dev.get("devices") or [] if isinstance(d, dict) and d.get("isConsole")), {})
+            consoles.append({
+                "console_id": h.get("id"), "name": dev.get("hostName") or own.get("name"), "type": h.get("type"),
+                "model": own.get("model"), "firmware": own.get("version"), "status": own.get("status"),
+                "owner": h.get("owner"), "configured_as": configured.get(h.get("id")),
+            })
+        entry.update({"consoles": consoles, "count": len(consoles)})
+        out.append(entry)
+    return out
+
+
+@tool(annotations=READ_ONLY)
+async def discover_consoles() -> dict[str, Any]:
+    """Alle Konsolen, die die eingetragenen Site-Manager-Keys sehen (pro Key), mit console_id, Name, Modell,
+    Firmware und Status sowie ob sie schon in der Konsolen-Liste stehen. Hilft beim Erstellen von
+    CONSOLES_JSON. Keys: SITE_MANAGER_API_KEY und SITE_MANAGER_API_KEY_* (Umgebung oder UNIFI_CONSOLE_SECRETS)."""
+    return {"keys": await discover()}
 
 
 @tool(annotations=READ_ONLY)

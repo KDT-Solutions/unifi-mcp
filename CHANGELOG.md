@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Neues Tool `discover_consoles`: alle Konsolen, die die eingetragenen Site-Manager-Keys sehen, pro Key, mit Hinweis, ob sie schon konfiguriert sind. Ohne konfigurierte Konsolen steht das Ergebnis beim Start auch im Container-Log.
+
 ## 0.2.0
 
 - Mehrere Site-Manager-Keys (UI-Konten): neues Feld `site_manager_key_env` pro Konsole. Site-Manager-Abfragen laufen pro Key und nur für die zugeordneten Konsolen, der Cloud-Connector nutzt den Key der Konsole. **Breaking:** `api_key_env` ist bei `mode: cloud` nicht mehr erlaubt.
