@@ -19,8 +19,9 @@ logger = logging.getLogger("unifi_mcp.config")
 
 MODES = ("cloud", "direct")
 ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
-# Site-Manager-Host-ID, z.B. "0000AAAA...:123456789" (Hex, Doppelpunkt, Ziffern).
-CONSOLE_ID_RE = re.compile(r"^[A-Za-z0-9]{8,128}(:[0-9]{1,20})?$")
+# Site-Manager-Host-ID: Hex mit optionalem ":<Ziffern>" oder UUID, ebenfalls mit optionalem Suffix
+# (beide Formen liefert GET /v1/hosts).
+CONSOLE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{7,127}(:[0-9]{1,20})?$")
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 CONSOLE_KEYS = {
     "name", "console_id", "mode", "base_url", "api_key_env", "tls_fingerprint",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- `console_id` im UUID-Format (mit Bindestrichen) wird akzeptiert; `GET /v1/hosts` liefert beide Formen.
+
 ## 0.2.1
 
 - Neues Tool `discover_consoles`: alle Konsolen, die die eingetragenen Site-Manager-Keys sehen, pro Key, mit Hinweis, ob sie schon konfiguriert sind. Ohne konfigurierte Konsolen steht das Ergebnis beim Start auch im Container-Log.

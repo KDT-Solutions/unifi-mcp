@@ -92,3 +92,19 @@ def test_consoles_json_takes_precedence(tmp_path):
     text = json.dumps({"consoles": [{"name": "Kunde C", "console_id": "C" * 20}]})
     (c,) = config.load_consoles(str(tmp_path / "fehlt.json"), text)
     assert c.name == "Kunde C"
+
+
+@pytest.mark.parametrize("console_id", [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000001:1000000001",
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+])
+def test_console_id_formats(console_id):
+    (c,) = parse({"name": "X", "console_id": console_id})
+    assert c.console_id == console_id
+
+
+@pytest.mark.parametrize("console_id", ["-abc12345", "abc/12345678", "abc 12345678", "abc12345:x"])
+def test_console_id_invalid(console_id):
+    with pytest.raises(ConfigError, match="console_id"):
+        parse({"name": "X", "console_id": console_id})
