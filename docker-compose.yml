@@ -1,7 +1,7 @@
 # Portainer-Git-Stack (Docker Standalone, Build-Methode "Repository"), ohne GitOps-Autoupdate.
 # Das Image baut GitHub Actions (.github/workflows/docker-publish.yml) und legt es auf ghcr.io ab.
-# Das Package ist privat: Portainer braucht unter "Registries" einen ghcr.io-Eintrag mit einem
-# GitHub-Token (Scope "read:packages").
+# Ist das Package auf ghcr.io privat, braucht Portainer unter "Registries" einen ghcr.io-Eintrag
+# mit einem GitHub-Token (Scope "read:packages").
 services:
   unifi-mcp:
     image: ghcr.io/kdt-solutions/unifi-mcp:${UNIFI_MCP_TAG:-latest}

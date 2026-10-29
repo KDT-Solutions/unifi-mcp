@@ -4,7 +4,7 @@ MCP-Server, über den Claude die UniFi-Umgebungen (Gateway/Firewall, Switches, W
 
 Läuft ausschliesslich als Docker-Container (Portainer-Git-Stack) mit Streamable-HTTP-Transport hinter Nginx Proxy Manager und wird als Custom Connector genutzt. Kein stdio, kein lokaler Betrieb.
 
-Repository und Image sind **privat**, weil Code und Konfiguration Rückschlüsse auf Kundennetze zulassen. Trotzdem enthalten Code, README, Beispiele und Tests keine echten Daten, nur Platzhalter (`unifi.example.com`, `192.0.2.0/24`, `Kunde A`). Die Konsolen-Liste liegt nicht im Repository.
+Dieses Repository ist **öffentlich**: Code, README, Beispiele und Tests enthalten keine echten Daten, nur Platzhalter (`unifi.example.com`, `192.0.2.0/24`, `Kunde A`). Konsolen-Liste, Keys und alle übrigen echten Werte gehören ausschliesslich in die Stack-Variablen in Portainer.
 
 ## Architektur
 
@@ -203,8 +203,8 @@ Die Bestätigung ist ein Tool-Parameter und keine unabhängige menschliche Freig
 ## Deployment (Portainer-Git-Stack)
 
 1. Image: GitHub Actions (`.github/workflows/docker-publish.yml`) führt bei jedem Push die Tests aus. Steht in `VERSION` eine Version, zu der es noch keinen Tag gibt, setzt der Workflow beim Push auf `main` den Tag `vX.Y.Z` und baut `ghcr.io/kdt-solutions/unifi-mcp:X.Y.Z` und `:latest` mit den Build-Args `APP_VERSION`, `GIT_SHA`, `BUILD_TIME`. Manueller Lauf: nur `:dev-<Commit>`.
-2. Portainer *Registries*: ghcr.io-Eintrag mit einem GitHub-Token (Scope `read:packages`), da das Package privat ist.
-3. Portainer *Stacks → Add stack → Repository*: Repository `https://github.com/KDT-Solutions/unifi-mcp`, Referenz `refs/heads/main`, Compose-Pfad `docker-compose.yml`, Authentifizierung mit einem GitHub-Token (privates Repository). **GitOps-Updates aus** (kein Polling, kein Webhook). Portainer schreibt bei Git-Stacks keine `stack.env`; alle Werte kommen über die Variablen unter `environment` in `docker-compose.yml`.
+2. Ist das Package auf ghcr.io privat, braucht Portainer unter *Registries* einen ghcr.io-Eintrag mit einem GitHub-Token (Scope `read:packages`).
+3. Portainer *Stacks → Add stack → Repository*: Repository `https://github.com/KDT-Solutions/unifi-mcp`, Referenz `refs/heads/main`, Compose-Pfad `docker-compose.yml`. **GitOps-Updates aus** (kein Polling, kein Webhook). Portainer schreibt bei Git-Stacks keine `stack.env`; alle Werte kommen über die Variablen unter `environment` in `docker-compose.yml`.
 4. Stack-Variablen setzen (siehe oben und `.env.example`), mindestens `MCP_API_KEY`, `SITE_MANAGER_API_KEY`, `CONSOLES_JSON`, `MCP_BIND_ADDR`, bei Bedarf `UNIFI_CONSOLE_SECRETS`.
 5. Nginx Proxy Manager: Läuft unter `mcp.example.com` bereits ein anderer MCP (z.B. o365-mcp unter `/o365`), auf diesem Proxy-Host eine **Custom Location** `/unifi` → `http://<MCP_BIND_ADDR>:8438` anlegen. Sonst einen eigenen Proxy-Host mit Let's-Encrypt-Zertifikat und Force SSL. Der Pfad `/unifi` wird unverändert durchgereicht; Authorization-Header nicht entfernen.
 6. Prüfen (vom Docker-Host): `curl -i http://<MCP_BIND_ADDR>:8438/healthz` liefert `401`, mit `-H "Authorization: Bearer <MCP_API_KEY>"` liefert es `200`.
