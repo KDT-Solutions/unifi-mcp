@@ -24,8 +24,9 @@ CONSOLE_ID_RE = re.compile(r"^[A-Za-z0-9]{8,128}(:[0-9]{1,20})?$")
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 CONSOLE_KEYS = {
     "name", "console_id", "mode", "base_url", "api_key_env", "tls_fingerprint",
-    "writes_enabled", "legacy_enabled", "legacy_username_env", "legacy_password_env",
+    "writes_enabled", "legacy_enabled", "legacy_username_env", "legacy_password_env", "site_manager_key_env",
 }
+DEFAULT_SITE_MANAGER_KEY_ENV = "SITE_MANAGER_API_KEY"
 DEFAULT_SITE_MANAGER_URL = "https://api.ui.com"
 
 
@@ -66,6 +67,7 @@ class Console:
     legacy_enabled: bool = False
     legacy_username_env: str = ""
     legacy_password_env: str = ""
+    site_manager_key_env: str = DEFAULT_SITE_MANAGER_KEY_ENV
 
     def public(self) -> dict:
         """Darstellung ohne Secrets (Variablennamen sind keine Secrets, werden aber nicht ausgegeben)."""
@@ -76,6 +78,7 @@ class Console:
             "base_url": self.base_url or None,
             "tls_pinned": bool(self.tls_fingerprint),
             "legacy_enabled": self.legacy_enabled,
+            "site_manager_account": self.site_manager_key_env,
         }
 
 
@@ -107,10 +110,12 @@ def _parse_console(raw: object, index: int) -> Console:
             raise ConfigError(f"{where}: 'base_url' nur als https://host[:port] ohne Pfad")
     if mode == "direct" and not base_url:
         raise ConfigError(f"{where}: 'base_url' ist im Modus direct Pflicht")
-    for key in ("api_key_env", "legacy_username_env", "legacy_password_env"):
+    for key in ("api_key_env", "legacy_username_env", "legacy_password_env", "site_manager_key_env"):
         value = raw.get(key) or ""
         if not isinstance(value, str) or (value and not ENV_NAME_RE.fullmatch(value)):
             raise ConfigError(f"{where}: '{key}' muss ein Variablenname aus A-Z, 0-9 und _ sein")
+    if mode == "cloud" and raw.get("api_key_env"):
+        raise ConfigError(f"{where}: bei mode cloud gilt der Site-Manager-Key - 'site_manager_key_env' statt 'api_key_env' verwenden")
     if mode == "direct" and not raw.get("api_key_env"):
         raise ConfigError(f"{where}: 'api_key_env' ist im Modus direct Pflicht")
     for key in ("writes_enabled", "legacy_enabled"):
@@ -140,6 +145,7 @@ def _parse_console(raw: object, index: int) -> Console:
         legacy_enabled=legacy,
         legacy_username_env=raw.get("legacy_username_env") or "",
         legacy_password_env=raw.get("legacy_password_env") or "",
+        site_manager_key_env=raw.get("site_manager_key_env") or DEFAULT_SITE_MANAGER_KEY_ENV,
     )
 
 

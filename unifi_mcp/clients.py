@@ -45,9 +45,13 @@ def _env(name: str, label: str) -> str:
 
 
 class SiteManagerClient:
-    def __init__(self, settings: Settings, cache: TtlCache):
+    """Site Manager API mit einem Key. Ein Key gehört zu einem UI-Konto bzw. einer Organisation
+    und sieht nur deren Konsolen; pro Key gibt es deshalb einen eigenen Client."""
+
+    def __init__(self, settings: Settings, cache: TtlCache, key_env: str = "SITE_MANAGER_API_KEY"):
         self.settings = settings
         self.cache = cache
+        self.key_env = key_env
         self._client: httpx.AsyncClient | None = None
 
     def _http(self) -> httpx.AsyncClient:
@@ -56,12 +60,10 @@ class SiteManagerClient:
         return self._client
 
     def _headers(self) -> dict[str, str]:
-        if not self.settings.site_manager_api_key:
-            raise ConfigError("SITE_MANAGER_API_KEY ist nicht gesetzt")
-        return {"X-API-Key": self.settings.site_manager_api_key, "Accept": "application/json"}
+        return {"X-API-Key": _env(self.key_env, "Site Manager"), "Accept": "application/json"}
 
     async def _get(self, path: str, params: Any = None, ttl: float | None = None) -> Any:
-        key = ("sitemanager", path, repr(params))
+        key = ("sitemanager", self.key_env, path, repr(params))
         hit = self.cache.get(key)
         if hit is not None:
             return hit
@@ -129,13 +131,12 @@ class NetworkClient:
 
     def _key(self) -> str:
         label = f"Konsole '{self.console.name}'"
-        if self.console.api_key_env:
-            return _env(self.console.api_key_env, label)
         if self.console.mode == "cloud":
-            if not self.settings.site_manager_api_key:
-                raise ConfigError("SITE_MANAGER_API_KEY ist nicht gesetzt")
-            return self.settings.site_manager_api_key
-        raise ConfigError(f"{label}: api_key_env fehlt")
+            # Cloud-Connector: Site-Manager-Key des Kontos, dem die Konsole gehört.
+            return _env(self.console.site_manager_key_env, label)
+        if not self.console.api_key_env:
+            raise ConfigError(f"{label}: api_key_env fehlt")
+        return _env(self.console.api_key_env, label)
 
     async def _http(self) -> httpx.AsyncClient:
         async with self._lock:

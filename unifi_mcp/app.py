@@ -98,9 +98,22 @@ class Runtime:
     consoles: tuple[Console, ...]
     store: Store
     cache: TtlCache
-    sitemanager: SiteManagerClient
+    _sitemanager: dict[str, SiteManagerClient] = field(default_factory=dict)
     _network: dict[str, NetworkClient] = field(default_factory=dict)
     _legacy: dict[str, LegacyClient] = field(default_factory=dict)
+
+    def sitemanager(self, key_env: str) -> SiteManagerClient:
+        if key_env not in self._sitemanager:
+            self._sitemanager[key_env] = SiteManagerClient(self.settings, self.cache, key_env)
+        return self._sitemanager[key_env]
+
+    def sitemanager_groups(self, consoles: list[Console] | None = None) -> dict[str, list[Console]]:
+        """Konsolen mit console_id, gruppiert nach Site-Manager-Key (= UI-Konto)."""
+        groups: dict[str, list[Console]] = {}
+        for c in consoles if consoles is not None else self.consoles:
+            if c.console_id:
+                groups.setdefault(c.site_manager_key_env, []).append(c)
+        return groups
 
     def network(self, console: Console) -> NetworkClient:
         if console.name not in self._network:
@@ -141,8 +154,7 @@ class Runtime:
         raise GuardError(f"Konsole '{redact.clean_text(needle, 100)}' ist nicht konfiguriert (siehe list_consoles)")
 
     async def aclose(self) -> None:
-        await self.sitemanager.aclose()
-        for client in (*self._network.values(), *self._legacy.values()):
+        for client in (*self._sitemanager.values(), *self._network.values(), *self._legacy.values()):
             await client.aclose()
 
 
@@ -159,7 +171,6 @@ def runtime() -> Runtime:
             consoles=load_consoles(cfg.consoles_file, cfg.consoles_json),
             store=Store(cfg.data_dir, cfg.audit_retention_days),
             cache=cache,
-            sitemanager=SiteManagerClient(cfg, cache),
         )
     return _runtime
 

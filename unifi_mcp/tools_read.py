@@ -58,17 +58,29 @@ def selected_consoles(console: str | None) -> list[Console]:
     return [rt.find(console)] if console else list(rt.consoles)
 
 
-async def sm_console_devices() -> tuple[dict[str, list[dict]], str | None]:
-    """Geräte aus der Site Manager API je Host-ID (eine Abfrage für alle Konsolen)."""
+async def sm_collect(call: str, *args: Any, consoles: list[Console] | None = None,
+                     host_field: str = "hostId") -> tuple[list[dict[str, Any]], str | None]:
+    """Eine Site-Manager-Abfrage pro Key (UI-Konto) und nur die Einträge der eigenen Konsolen behalten.
+    Fehler eines Kontos verhindern die Daten der anderen nicht."""
     rt = runtime()
-    ids = [c.console_id for c in rt.consoles if c.console_id]
-    if not ids:
-        return {}, None
-    try:
-        hosts = await rt.sitemanager.devices(ids)
-    except Exception as exc:  # noqa: BLE001
-        return {}, error_text(exc)
-    return {h.get("hostId"): [d for d in h.get("devices") or [] if isinstance(d, dict)] for h in hosts}, None
+    out: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for key_env, group in rt.sitemanager_groups(consoles).items():
+        ids = {c.console_id for c in group}
+        client = rt.sitemanager(key_env)
+        try:
+            items = await (client.devices(sorted(ids)) if call == "devices" else getattr(client, call)(*args))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{key_env} ({', '.join(c.name for c in group)}): {error_text(exc)}")
+            continue
+        out.extend(i for i in items if i.get(host_field) in ids)
+    return out, ("; ".join(errors) or None)
+
+
+async def sm_console_devices(consoles: list[Console] | None = None) -> tuple[dict[str, list[dict]], str | None]:
+    """Geräte aus der Site Manager API je Host-ID (eine Abfrage pro Key)."""
+    hosts, error = await sm_collect("devices", consoles=consoles)
+    return {h.get("hostId"): [d for d in h.get("devices") or [] if isinstance(d, dict)] for h in hosts}, error
 
 
 async def sm_site(console: Console, site: dict[str, Any] | None) -> tuple[dict | None, str | None]:
@@ -76,7 +88,7 @@ async def sm_site(console: Console, site: dict[str, Any] | None) -> tuple[dict |
     if not console.console_id:
         return None, "Konsole ohne console_id - keine Site-Manager-Daten"
     try:
-        items = await runtime().sitemanager.sites()
+        items = await runtime().sitemanager(console.site_manager_key_env).sites()
     except Exception as exc:  # noqa: BLE001
         return None, error_text(exc)
     own = [s for s in items if s.get("hostId") == console.console_id]
@@ -193,18 +205,18 @@ async def list_sites(console: str | None = None) -> dict[str, Any]:
 @tool(annotations=READ_ONLY)
 async def site_health(console: str | None = None, site: str | None = None) -> dict[str, Any]:
     """Zusammenfassung pro Site: WAN-Verfügbarkeit, ISP, Gateway, Geräte online/offline, Clients und
-    offene Meldungen. Ohne console: Übersicht aller Konsolen aus der Site Manager API (eine Abfrage).
+    offene Meldungen. Ohne console: Übersicht aller Konsolen aus der Site Manager API (eine Abfrage pro Key).
     Mit console: zusätzlich Live-Zählung über die Network API (Geräte nach Status, Clients nach Typ)
     und bei aktivierter Legacy-API die Anzahl offener Alarme."""
     rt = runtime()
     if not console:
-        try:
-            entries = await rt.sitemanager.sites()
-        except Exception as exc:  # noqa: BLE001
-            raise GuardError(f"Site Manager nicht erreichbar: {error_text(exc)}") from None
+        entries, error = await sm_collect("sites")
+        if error and not entries:
+            raise GuardError(f"Site Manager nicht erreichbar: {error}")
         names = {c.console_id: c.name for c in rt.consoles if c.console_id}
         out = [{"console": names[e.get("hostId")], **sm_site_summary(e)} for e in entries if e.get("hostId") in names]
-        return {"sites": out, "count": len(out), "source": "site_manager"}
+        return {"sites": out, "count": len(out), "source": "site_manager",
+                **({"site_manager_error": error} if error else {})}
 
     c = rt.find(console)
     net = rt.network(c)
@@ -633,15 +645,15 @@ async def wan_status(console: str | None = None, site: str | None = None, period
     rt = runtime()
     interval = "5m" if period == "24h" else "1h"
     errors: list[dict[str, str]] = []
-    try:
-        hosts = {h.get("id"): h for h in await rt.sitemanager.hosts()}
-        sm_sites = await rt.sitemanager.sites()
-        metrics = await rt.sitemanager.isp_metrics(interval, period)
-    except Exception as exc:  # noqa: BLE001
-        hosts, sm_sites, metrics = {}, [], []
-        errors.append({"console": "*", "error": f"Site Manager: {error_text(exc)}"})
+    consoles = selected_consoles(console)
+    host_list, e1 = await sm_collect("hosts", consoles=consoles, host_field="id")
+    sm_sites, e2 = await sm_collect("sites", consoles=consoles)
+    metrics, e3 = await sm_collect("isp_metrics", interval, period, consoles=consoles)
+    hosts = {h.get("id"): h for h in host_list}
+    for err in dict.fromkeys(e for e in (e1, e2, e3) if e):
+        errors.append({"console": "*", "error": f"Site Manager: {err}"})
     out = []
-    for c in selected_consoles(console):
+    for c in consoles:
         own_sites = [x for x in sm_sites if x.get("hostId") == c.console_id] if c.console_id else []
         wans: Any = None
         selected_ref = None
@@ -730,7 +742,7 @@ async def firmware_overview(console: str | None = None) -> dict[str, Any]:
     Network API (dort nur 'Update verfügbar' ohne Zielversion)."""
     rt = runtime()
     consoles = selected_consoles(console)
-    by_host, sm_error = await sm_console_devices()
+    by_host, sm_error = await sm_console_devices(consoles)
     out, errors = [], []
     for c in consoles:
         if c.console_id and c.console_id in by_host:

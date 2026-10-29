@@ -4,6 +4,7 @@
       "name": "Kunde A",
       "console_id": "0000000000000000000000000000000000000000000000000000000000000000:1000000001",
       "mode": "cloud",
+      "site_manager_key_env": "SITE_MANAGER_API_KEY_B",
       "writes_enabled": false,
       "legacy_enabled": false
     },

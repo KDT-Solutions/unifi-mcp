@@ -90,11 +90,14 @@ JSON, Aufbau wie `config/consoles.example.json`. Zwei Wege, die Liste steht in b
 | `console_id` | bei `cloud` | Host-ID aus der Site Manager API (`GET /v1/hosts`). Auch bei `direct` empfohlen: dann liefert Site Manager Status, Firmware-Updates und ISP-Metriken |
 | `mode` | nein | `cloud` (Standard) oder `direct` |
 | `base_url` | bei `direct` und Legacy | `https://host[:port]` der Konsole, ohne Pfad |
-| `api_key_env` | bei `direct` | **Name** der Variable mit dem Integration-API-Key. Bei `cloud` optional: Name einer Variable mit einem anderen Site-Manager-Key (z.B. eines anderen UI-Kontos); ohne Angabe gilt `SITE_MANAGER_API_KEY` |
+| `site_manager_key_env` | nein | **Name** der Variable mit dem Site-Manager-Key des UI-Kontos, dem die Konsole gehört. Standard `SITE_MANAGER_API_KEY`. Gilt für die Site-Manager-Daten (Status, Firmware, ISP-Metriken) und bei `cloud` für den Connector |
+| `api_key_env` | bei `direct` | **Name** der Variable mit dem Integration-API-Key der Konsole. Bei `cloud` nicht erlaubt |
 | `tls_fingerprint` | nein | SHA-256 des Zertifikats der Konsole bei selbstsigniertem Zertifikat (`sha256:AA:BB:...`, mit oder ohne Doppelpunkte) |
 | `writes_enabled` | nein | Standard `false` |
 | `legacy_enabled` | nein | Standard `false` |
 | `legacy_username_env`, `legacy_password_env` | bei Legacy | **Namen** der Variablen mit Benutzer und Passwort des lokalen Legacy-Benutzers |
+
+Mehrere UI-Konten: Ein Site-Manager-Key sieht nur die Konsolen seines Kontos bzw. seiner Organisation. Für jedes weitere Konto einen eigenen Key anlegen, ihn unter einem eigenen Namen in `UNIFI_CONSOLE_SECRETS` ablegen (z.B. `{"SITE_MANAGER_API_KEY_B": "..."}`) und bei dessen Konsolen `"site_manager_key_env": "SITE_MANAGER_API_KEY_B"` setzen. Abgefragt wird pro Key, und jeder Key nur für die Konsolen, die ihm zugeordnet sind; fällt ein Konto aus, liefern die anderen weiter Daten.
 
 Unbekannte Felder, doppelte Namen und ungültige Werte führen zum Abbruch beim Start, damit Tippfehler nicht unbemerkt bleiben. Der Key selbst steht nie in der Datei.
 
@@ -109,8 +112,8 @@ openssl s_client -connect 192.0.2.1:443 </dev/null 2>/dev/null | openssl x509 -n
 | Variable | Pflicht | Standard | Bedeutung |
 |---|---|---|---|
 | `MCP_API_KEY` | ja | - | Bearer-Token für den Connector (z.B. `openssl rand -hex 32`). Ohne startet der Server nicht |
-| `SITE_MANAGER_API_KEY` | ja | - | Key aus unifi.ui.com, *Settings → API Keys* |
-| `UNIFI_CONSOLE_SECRETS` | bei direct/Legacy | - | Secrets aller Konsolen als ein JSON-Objekt, z.B. `{"UNIFI_KEY_KUNDE_B":"...","UNIFI_LEGACY_PASSWORD_KUNDE_B":"..."}`. Die Namen sind die Werte von `api_key_env`, `legacy_username_env`, `legacy_password_env`. Alternativ einzelne Umgebungsvariablen gleichen Namens (haben Vorrang) |
+| `SITE_MANAGER_API_KEY` | ja | - | Key aus unifi.ui.com, *Settings → API Keys* (Standard-Konto) |
+| `UNIFI_CONSOLE_SECRETS` | bei direct/Legacy | - | Secrets aller Konsolen als ein JSON-Objekt, z.B. `{"UNIFI_KEY_KUNDE_B":"...","UNIFI_LEGACY_PASSWORD_KUNDE_B":"..."}`. Die Namen sind die Werte von `site_manager_key_env` (weitere Konten), `api_key_env`, `legacy_username_env`, `legacy_password_env`. Alternativ einzelne Umgebungsvariablen gleichen Namens (haben Vorrang) |
 | `CONSOLES_JSON` | ja, ausser bei Datei | - | Konsolen-Liste als JSON (siehe oben) |
 | `MCP_PATH` | nein | `/unifi` | Pfad des MCP-Endpunkts |
 | `MCP_BIND_ADDR` / `MCP_HOST_PORT` | nein | `127.0.0.1` / `8438` | Host-IP, über die NPM den Dienst erreicht, und Host-Port |
@@ -124,7 +127,7 @@ Secrets nur über die Stack-Variablen, nie im Image oder Repository. Vorlage: `.
 
 ### API-Keys und Benutzer
 
-- Site-Manager-Key unter unifi.ui.com erstellen. Für Kundenkonsolen in einer UI-Organisation einen Organisations-Key verwenden, sonst erreicht der Connector nur die Konsolen des Key-Besitzers.
+- Site-Manager-Key unter unifi.ui.com erstellen (*Settings → API Keys*, wird nur einmal angezeigt). Laut Doku erreicht der Key eines Kontos nur dessen eigene Konsolen, ein Organisations-Key alle Konsolen der Organisation. Bei mehreren Konten pro Konto einen Key (siehe `site_manager_key_env`).
 - Integration-Keys (`direct`) in der Network-App der jeweiligen Konsole erstellen. Wo die Konsole Rechte auswählen lässt, für Konsolen ohne `writes_enabled` nur lesende Rechte vergeben.
 - Legacy: eigenen lokalen Benutzer der Konsole mit minimalen Rechten anlegen (für reine Lesefunktionen nur lesend; für Sperren/Trennen/Update/Portweiterleitungen sind entsprechende Admin-Rechte nötig). Kein UI-Cloud-Konto verwenden, keine Zwei-Faktor-Anmeldung möglich.
 
