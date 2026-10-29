@@ -156,7 +156,7 @@ def runtime() -> Runtime:
         cache = TtlCache(cfg.cache_ttl)
         _runtime = Runtime(
             settings=cfg,
-            consoles=load_consoles(cfg.consoles_file),
+            consoles=load_consoles(cfg.consoles_file, cfg.consoles_json),
             store=Store(cfg.data_dir, cfg.audit_retention_days),
             cache=cache,
             sitemanager=SiteManagerClient(cfg, cache),

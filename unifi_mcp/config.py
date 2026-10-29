@@ -167,6 +167,7 @@ class Settings:
     site_manager_api_key: str
     site_manager_url: str = DEFAULT_SITE_MANAGER_URL
     consoles_file: str = "/config/consoles.json"
+    consoles_json: str = field(default="", repr=False)
     data_dir: str = "/data"
     cache_ttl: int = 30
     plan_ttl: int = 900
@@ -215,6 +216,7 @@ def load_settings() -> Settings:
         site_manager_api_key=env.get("SITE_MANAGER_API_KEY", "").strip(),
         site_manager_url=url,
         consoles_file=env.get("CONSOLES_FILE", "/config/consoles.json").strip(),
+        consoles_json=env.get("CONSOLES_JSON", "").strip(),
         data_dir=env.get("DATA_DIR", "/data").strip() or "/data",
         cache_ttl=_int(env.get("CACHE_TTL_SECONDS"), 30),
         plan_ttl=_int(env.get("PLAN_TTL_SECONDS"), 900, minimum=60),
@@ -227,7 +229,10 @@ def load_settings() -> Settings:
     )
 
 
-def load_consoles(path: str) -> tuple[Console, ...]:
+def load_consoles(path: str, text: str = "") -> tuple[Console, ...]:
+    """Konsolen aus CONSOLES_JSON (Stack-Variable), sonst aus der Datei."""
+    if text:
+        return parse_consoles(text)
     try:
         with open(path, encoding="utf-8") as handle:
             text = handle.read()

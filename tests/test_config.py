@@ -86,3 +86,9 @@ def test_console_secrets_invalid(monkeypatch, raw):
     with pytest.raises(ConfigError, match="UNIFI_CONSOLE_SECRETS") as exc:
         config.settings()
     assert raw not in str(exc.value)
+
+
+def test_consoles_json_takes_precedence(tmp_path):
+    text = json.dumps({"consoles": [{"name": "Kunde C", "console_id": "C" * 20}]})
+    (c,) = config.load_consoles(str(tmp_path / "fehlt.json"), text)
+    assert c.name == "Kunde C"

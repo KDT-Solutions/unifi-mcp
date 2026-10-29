@@ -64,9 +64,14 @@ Anmeldung: `POST /api/auth/login`. Bei HTTP 401 (Sitzung abgelaufen) wird genau 
 
 ## Konfiguration
 
-### Konsolen-Datei
+### Konsolen-Liste
 
-JSON-Datei, per Volume read-only nach `/config/consoles.json` eingebunden (Pfad auf dem Host: Stack-Variable `CONSOLES_FILE_HOST`). Aufbau wie `config/consoles.example.json`:
+JSON, Aufbau wie `config/consoles.example.json`. Zwei Wege, die Liste steht in beiden Fällen nicht im Repository:
+
+- Stack-Variable `CONSOLES_JSON` (Standard in `docker-compose.yml`, gleiches Muster wie `TENANTS_JSON` bei o365-mcp). Geeignet, wenn der Stack von einem Portainer-Benutzer ohne Administratorrechte angelegt wird; dann sind Bind-Mounts von Host-Dateien unter Umständen nicht erlaubt.
+- Datei `/config/consoles.json`, per Volume read-only eingebunden (z.B. `- /srv/unifi-mcp/consoles.json:/config/consoles.json:ro` unter `volumes` ergänzen). Wird nur gelesen, wenn `CONSOLES_JSON` leer ist.
+
+
 
 ```json
 {
@@ -106,9 +111,9 @@ openssl s_client -connect 192.0.2.1:443 </dev/null 2>/dev/null | openssl x509 -n
 | `MCP_API_KEY` | ja | - | Bearer-Token für den Connector (z.B. `openssl rand -hex 32`). Ohne startet der Server nicht |
 | `SITE_MANAGER_API_KEY` | ja | - | Key aus unifi.ui.com, *Settings → API Keys* |
 | `UNIFI_CONSOLE_SECRETS` | bei direct/Legacy | - | Secrets aller Konsolen als ein JSON-Objekt, z.B. `{"UNIFI_KEY_KUNDE_B":"...","UNIFI_LEGACY_PASSWORD_KUNDE_B":"..."}`. Die Namen sind die Werte von `api_key_env`, `legacy_username_env`, `legacy_password_env`. Alternativ einzelne Umgebungsvariablen gleichen Namens (haben Vorrang) |
-| `CONSOLES_FILE_HOST` | ja | `/srv/unifi-mcp/consoles.json` | Pfad der Konsolen-Datei auf dem Docker-Host |
+| `CONSOLES_JSON` | ja, ausser bei Datei | - | Konsolen-Liste als JSON (siehe oben) |
 | `MCP_PATH` | nein | `/unifi` | Pfad des MCP-Endpunkts |
-| `MCP_BIND_ADDR` / `MCP_HOST_PORT` | nein | `0.0.0.0` / `8439` | Host-Bindung |
+| `MCP_BIND_ADDR` / `MCP_HOST_PORT` | nein | `127.0.0.1` / `8438` | Host-IP, über die NPM den Dienst erreicht, und Host-Port |
 | `CACHE_TTL_SECONDS` | nein | `30` | Cache für lesende Aufrufe; ISP-Metriken 60 s; Schreibaktionen leeren den Cache der Konsole |
 | `AUDIT_RETENTION_DAYS` | nein | `365` | Aufbewahrung des Audit-Logs, `0` = unbegrenzt |
 | `MCP_RATE_LIMIT_PER_MINUTE` | nein | `120` | Requests pro Minute mit gültigem Token |
@@ -199,13 +204,12 @@ Die Bestätigung ist ein Tool-Parameter und keine unabhängige menschliche Freig
 
 1. Image: GitHub Actions (`.github/workflows/docker-publish.yml`) führt bei jedem Push die Tests aus. Steht in `VERSION` eine Version, zu der es noch keinen Tag gibt, setzt der Workflow beim Push auf `main` den Tag `vX.Y.Z` und baut `ghcr.io/kdt-solutions/unifi-mcp:X.Y.Z` und `:latest` mit den Build-Args `APP_VERSION`, `GIT_SHA`, `BUILD_TIME`. Manueller Lauf: nur `:dev-<Commit>`.
 2. Portainer *Registries*: ghcr.io-Eintrag mit einem GitHub-Token (Scope `read:packages`), da das Package privat ist.
-3. Konsolen-Datei auf dem Docker-Host ablegen (z.B. `/srv/unifi-mcp/consoles.json`, lesbar für UID 10001).
-4. Portainer *Stacks → Add stack → Repository*: Repository `https://github.com/KDT-Solutions/unifi-mcp`, Referenz `refs/heads/main`, Compose-Pfad `docker-compose.yml`, Authentifizierung mit einem GitHub-Token (privates Repository). **GitOps-Updates aus** (kein Polling, kein Webhook). Den Stack als Administrator anlegen, da er einen Bind-Mount für die Konsolen-Datei nutzt.
-5. Stack-Variablen setzen (siehe oben und `.env.example`), mindestens `MCP_API_KEY`, `SITE_MANAGER_API_KEY`, `CONSOLES_FILE_HOST`, bei Bedarf `UNIFI_CONSOLE_SECRETS`.
-6. Nginx Proxy Manager: Proxy-Host `mcp.example.com` → `http://<Docker-Host>:8439`, Let's-Encrypt-Zertifikat, Force SSL. Der Pfad `/unifi` wird unverändert durchgereicht; Authorization-Header nicht entfernen.
-7. Prüfen: `curl -i https://mcp.example.com/healthz` liefert `401`, mit `-H "Authorization: Bearer <MCP_API_KEY>"` liefert es `200`.
+3. Portainer *Stacks → Add stack → Repository*: Repository `https://github.com/KDT-Solutions/unifi-mcp`, Referenz `refs/heads/main`, Compose-Pfad `docker-compose.yml`, Authentifizierung mit einem GitHub-Token (privates Repository). **GitOps-Updates aus** (kein Polling, kein Webhook). Portainer schreibt bei Git-Stacks keine `stack.env`; alle Werte kommen über die Variablen unter `environment` in `docker-compose.yml`.
+4. Stack-Variablen setzen (siehe oben und `.env.example`), mindestens `MCP_API_KEY`, `SITE_MANAGER_API_KEY`, `CONSOLES_JSON`, `MCP_BIND_ADDR`, bei Bedarf `UNIFI_CONSOLE_SECRETS`.
+5. Nginx Proxy Manager: Läuft unter `mcp.example.com` bereits ein anderer MCP (z.B. o365-mcp unter `/o365`), auf diesem Proxy-Host eine **Custom Location** `/unifi` → `http://<MCP_BIND_ADDR>:8438` anlegen. Sonst einen eigenen Proxy-Host mit Let's-Encrypt-Zertifikat und Force SSL. Der Pfad `/unifi` wird unverändert durchgereicht; Authorization-Header nicht entfernen.
+6. Prüfen (vom Docker-Host): `curl -i http://<MCP_BIND_ADDR>:8438/healthz` liefert `401`, mit `-H "Authorization: Bearer <MCP_API_KEY>"` liefert es `200`.
 
-Updates: neue Version in `VERSION` pushen, dann in Portainer den Stack mit *Pull and redeploy* aktualisieren. Konsolen-Datei geändert: Stack neu starten.
+Updates: neue Version in `VERSION` pushen, dann in Portainer den Stack mit *Pull and redeploy* aktualisieren. Konsolen-Liste geändert: Stack neu ausrollen.
 
 ## Als Connector hinzufügen
 

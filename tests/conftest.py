@@ -52,7 +52,7 @@ def env(monkeypatch, tmp_path):
     }
     for key, value in values.items():
         monkeypatch.setenv(key, value)
-    for key in ("APP_VERSION", "GIT_SHA", "BUILD_TIME", "SITE_MANAGER_URL", "CACHE_TTL_SECONDS"):
+    for key in ("APP_VERSION", "GIT_SHA", "BUILD_TIME", "SITE_MANAGER_URL", "CACHE_TTL_SECONDS", "CONSOLES_JSON"):
         monkeypatch.delenv(key, raising=False)
     from unifi_mcp import app, config, transport
 
