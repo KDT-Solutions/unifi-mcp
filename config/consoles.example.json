@@ -1,0 +1,23 @@
+{
+  "consoles": [
+    {
+      "name": "Kunde A",
+      "console_id": "0000000000000000000000000000000000000000000000000000000000000000:1000000001",
+      "mode": "cloud",
+      "writes_enabled": false,
+      "legacy_enabled": false
+    },
+    {
+      "name": "Kunde B",
+      "console_id": "0000000000000000000000000000000000000000000000000000000000000000:1000000002",
+      "mode": "direct",
+      "base_url": "https://unifi.example.com",
+      "api_key_env": "UNIFI_KEY_KUNDE_B",
+      "tls_fingerprint": "sha256:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF",
+      "writes_enabled": false,
+      "legacy_enabled": false,
+      "legacy_username_env": "UNIFI_LEGACY_USER_KUNDE_B",
+      "legacy_password_env": "UNIFI_LEGACY_PASSWORD_KUNDE_B"
+    }
+  ]
+}

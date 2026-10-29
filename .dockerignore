@@ -1,0 +1,11 @@
+.venv
+.git
+.github
+__pycache__
+.pytest_cache
+*.db*
+.env
+config/consoles.json
+data
+secrets
+tests

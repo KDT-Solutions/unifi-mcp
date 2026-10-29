@@ -1,0 +1,50 @@
+# Portainer-Git-Stack (Docker Standalone, Build-Methode "Repository"), ohne GitOps-Autoupdate.
+# Das Image baut GitHub Actions (.github/workflows/docker-publish.yml) und legt es auf ghcr.io ab.
+# Das Package ist privat: Portainer braucht unter "Registries" einen ghcr.io-Eintrag mit einem
+# GitHub-Token (Scope "read:packages").
+services:
+  unifi-mcp:
+    image: ghcr.io/kdt-solutions/unifi-mcp:${UNIFI_MCP_TAG:-latest}
+    # Bei jedem Deploy/Redeploy das Image neu ziehen statt einer veralteten lokalen :latest-Kopie.
+    pull_policy: always
+    container_name: unifi-mcp
+    restart: unless-stopped
+    init: true
+    # Härtung: unprivilegierter Benutzer (siehe Dockerfile), read-only Root-Dateisystem, keine Capabilities.
+    read_only: true
+    cap_drop:
+      - ALL
+    environment:
+      MCP_API_KEY: ${MCP_API_KEY}
+      SITE_MANAGER_API_KEY: ${SITE_MANAGER_API_KEY}
+      # Integration-Keys und Legacy-Zugangsdaten aller Konsolen als ein JSON-Objekt
+      # {"UNIFI_KEY_KUNDE_B": "...", ...}; die Namen stehen in consoles.json (api_key_env usw.).
+      UNIFI_CONSOLE_SECRETS: ${UNIFI_CONSOLE_SECRETS:-}
+      MCP_PATH: ${MCP_PATH:-/unifi}
+      CONSOLES_FILE: /config/consoles.json
+      DATA_DIR: /data
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-30}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-365}
+      MCP_RATE_LIMIT_PER_MINUTE: ${MCP_RATE_LIMIT_PER_MINUTE:-120}
+      MCP_AUTH_FAIL_LIMIT_PER_MINUTE: ${MCP_AUTH_FAIL_LIMIT_PER_MINUTE:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Audit-Log, Pläne und Sicherungen vor Änderungen (übersteht Redeploys).
+      - unifi-mcp-data:/data
+      # Konsolen-Liste (nicht im Repo), read-only vom Docker-Host.
+      - ${CONSOLES_FILE_HOST:-/srv/unifi-mcp/consoles.json}:/config/consoles.json:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=10001,gid=10001
+    ports:
+      # Zugriff nur über den Reverse-Proxy (TLS macht Nginx Proxy Manager).
+      - "${MCP_BIND_ADDR:-0.0.0.0}:${MCP_HOST_PORT:-8439}:8000"
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  unifi-mcp-data:
