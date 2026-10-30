@@ -23,8 +23,14 @@ _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f​-‏‪-‮⁦-⁩]")
 MAX_TEXT = 512
 
 
+# In der Legacy-API sind Felder mit Präfix x_ Secrets (z.B. x_password des Hotspot-Portals,
+# x_stripe_api_key, x_facebook_app_secret, x_paypal_password).
+LEGACY_SECRET_PREFIX = "x_"
+
+
 def is_secret_key(name: str) -> bool:
-    return bool(SECRET_KEY_RE.fullmatch(str(name or "")))
+    text = str(name or "")
+    return bool(SECRET_KEY_RE.fullmatch(text)) or text.lower().startswith(LEGACY_SECRET_PREFIX)
 
 
 def mask_secrets(data: Any, reveal: bool = False) -> Any:

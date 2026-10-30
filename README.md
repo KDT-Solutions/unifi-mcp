@@ -15,7 +15,9 @@ Claude ──HTTPS──> Nginx Proxy Manager ──HTTP──> unifi-mcp (Conta
                                                      ├── Network Integration API
                                                      │     cloud:  https://api.ui.com/v1/connector/consoles/{id}/proxy/network/integration
                                                      │     direct: https://{konsole}/proxy/network/integration
-                                                     └── Legacy-API (optional, nur direct)  https://{konsole}/proxy/network/api/s/{site}/...
+                                                     └── Legacy-API (optional)
+                                                           direct: https://{konsole}/proxy/network/api/s/{site}/...
+                                                           cloud:  https://api.ui.com/v1/connector/consoles/{id}{präfix}/api/s/{site}/...
 ```
 
 | Datei | Inhalt |
@@ -49,7 +51,12 @@ Die Integration API ist laut Doku **über den Cloud-Connector der Site Manager A
 
 `mode: direct` spricht die Konsole direkt an (`https://{konsole}/proxy/network/integration`) mit einem API-Key, der in der Network-App der Konsole erstellt wird.
 
-**Legacy-API** (Benutzername/Passwort, Session-Cookie, `X-CSRF-Token`): nur als Fallback für Funktionen, die die offizielle API nicht bietet, nur pro Konsole mit `legacy_enabled: true` und nur direkt zur Konsole (`base_url`). Diese API ist von Ubiquiti **nicht offiziell dokumentiert**; die verwendeten Pfade entsprechen den verbreiteten Community-Clients und sind noch nicht gegen eine echte Konsole getestet:
+**Legacy-API**: nur als Fallback für Funktionen, die die offizielle API nicht bietet, nur pro Konsole mit `legacy_enabled: true`. Zwei Wege:
+
+- **direkt** (`base_url` gesetzt): Benutzername/Passwort eines lokalen Benutzers, Session-Cookie, `X-CSRF-Token`.
+- **über den Cloud-Connector** (`mode: cloud` ohne `base_url`): mit dem Site-Manager-Key, ohne Login, die Konsole muss nicht erreichbar sein. Der Pfad unter `/v1/connector/consoles/{id}` ist von Ubiquiti nicht dokumentiert. Der Dienst prüft mit einem lesenden Aufruf (`api/s/{site}/self`) zuerst `/proxy/network`, dann `/network` (so nutzt es der Art-of-WiFi-Client) und merkt sich den funktionierenden Präfix. Schreibende Aufrufe laufen erst, wenn der Präfix so ermittelt ist.
+
+Diese API ist von Ubiquiti **nicht offiziell dokumentiert**; die verwendeten Pfade entsprechen den verbreiteten Community-Clients und sind noch nicht gegen eine echte Konsole getestet:
 
 | Funktion | Legacy-Pfad unter `/proxy/network/api/s/{site}/` |
 |---|---|
@@ -59,6 +66,7 @@ Die Integration API ist laut Doku **über den Cloud-Connector der Site Manager A
 | PoE-Verbrauch, Port-Fehler, Kanalauslastung | `GET stat/device/{mac}` |
 | Ereignisse, Alarme | `POST stat/event`, `GET list/alarm` |
 | Portweiterleitungen | `GET list/portforward`, `POST/PUT rest/portforward` |
+| Hotspot-/Gastportal inkl. Pre-Authorization-Freigaben | `GET rest/setting` (Bereich `guest_access`), `PUT rest/setting/guest_access/{_id}` |
 
 Anmeldung: `POST /api/auth/login`. Bei HTTP 401 (Sitzung abgelaufen) wird genau einmal neu angemeldet.
 
@@ -94,8 +102,8 @@ JSON, Aufbau wie `config/consoles.example.json`. Zwei Wege, die Liste steht in b
 | `api_key_env` | bei `direct` | **Name** der Variable mit dem Integration-API-Key der Konsole. Bei `cloud` nicht erlaubt |
 | `tls_fingerprint` | nein | SHA-256 des Zertifikats der Konsole bei selbstsigniertem Zertifikat (`sha256:AA:BB:...`, mit oder ohne Doppelpunkte) |
 | `writes_enabled` | nein | Standard `false` |
-| `legacy_enabled` | nein | Standard `false` |
-| `legacy_username_env`, `legacy_password_env` | bei Legacy | **Namen** der Variablen mit Benutzer und Passwort des lokalen Legacy-Benutzers |
+| `legacy_enabled` | nein | Standard `false`. Bei `mode: cloud` ohne `base_url` läuft die Legacy-API über den Cloud-Connector |
+| `legacy_username_env`, `legacy_password_env` | bei Legacy direkt | **Namen** der Variablen mit Benutzer und Passwort des lokalen Legacy-Benutzers. Nur zusammen mit `base_url` |
 
 Mehrere UI-Konten: Ein Site-Manager-Key sieht nur die Konsolen seines Kontos bzw. seiner Organisation. Für jedes weitere Konto einen eigenen Key anlegen, ihn unter einem eigenen Namen in `UNIFI_CONSOLE_SECRETS` ablegen (z.B. `{"SITE_MANAGER_API_KEY_B": "..."}`) und bei dessen Konsolen `"site_manager_key_env": "SITE_MANAGER_API_KEY_B"` setzen. Abgefragt wird pro Key, und jeder Key nur für die Konsolen, die ihm zugeordnet sind; fällt ein Konto aus, liefern die anderen weiter Daten.
 
@@ -151,6 +159,7 @@ Parameter `console` = Name oder `console_id`, `site` = Site-ID, interner Name (`
 | `list_networks(console, site)` | Netze/VLANs, Subnetz, Gateway-IP, DHCP-Bereich, Lease, DNS, Isolation |
 | `list_wlans(console, site, show_passphrase)` | SSIDs, Sicherheitsmodus, Netz, Bänder. Passwörter maskiert, Klartext nur mit `show_passphrase=true` (wird auditiert) |
 | `list_firewall_rules(console, site, include_predefined)` | Firewall-Policies mit Zonen und Filtern, Firewall-Zonen; Portweiterleitungen mit Legacy |
+| `hotspot_settings(console, site)` | Hotspot-/Gastportal (Bereich `guest_access`) inkl. Pre-Authorization-Freigaben und Post-Authorization-Sperren; alle `x_`-Felder maskiert (Legacy) |
 | `list_vpn(console, site)` | VPN-Server und Site-to-Site-Tunnel (Typ, aktiviert). Einen Verbindungsstatus liefert die offizielle API nicht |
 | `wan_status(console, site, period)` | WAN-Schnittstellen, gemeldete IP der Konsole, ISP, WAN-Verfügbarkeit, Internet-Probleme, ISP-Metriken (Latenz, Paketverlust, Ausfallzeit) über 24h/7d/30d |
 | `list_events(console, site, hours, limit)` | Ereignisse und Alarme (Legacy); sonst Internet-Probleme und kritische Meldungen aus Site Manager |
@@ -184,6 +193,7 @@ Parameter `console` = Name oder `console_id`, `site` = Site-ID, interner Name (`
 | `wlan.update` | offiziell | nur die zu ändernden Felder (ohne Passphrase) |
 | `wlan.set_passphrase` | offiziell | `{"passphrase": "..."}`, 8-63 Zeichen, nur WPA2/WPA3 Personal |
 | `port_forward.create` / `port_forward.update` | Legacy | Portweiterleitung (`name`, `enabled`, `proto`, `src`, `dst_port`, `fwd`, `fwd_port`, ...) |
+| `guest_access.update` | Legacy | Hotspot-/Gastportal, nur die zu ändernden Felder wie `hotspot_settings` sie zeigt (z.B. Pre-Authorization-Freigaben). `target` nicht nötig, `key` nicht änderbar |
 
 Bei `*.update` wird der aktuelle Stand gelesen und mit `changes` zusammengeführt (Objekte rekursiv, Listen ersetzt). Nicht änderbar: `id`, `metadata`, `default`, `index`. Löschen ist nicht vorgesehen.
 
@@ -195,7 +205,7 @@ Bei `*.update` wird der aktuelle Stand gelesen und mit `changes` zusammengeführ
 - **Sicherung vor jeder Ausführung** als JSON in `/data/backups/<plan_id>.json` (Rechte 0600). `rollback_change` stellt den Stand wieder her bzw. löscht ein neu angelegtes Objekt. Die Sicherungen enthalten den vollständigen vorherigen Stand, bei WLANs also auch die alte Passphrase: das Volume entsprechend schützen. Die neue Passphrase wird nach der Ausführung aus dem Plan-Speicher entfernt.
 - **Audit-Log** in `/data/state.db`: Zeitpunkt, Konsole, Aktion, Ziel, Ergebnis (`succeeded`, `failed`, `unknown_verify_state`, `planned`, `aborted_changed`), auch für `show_passphrase` und `set_console_writes`. Abruf mit `get_audit_log`. Zusätzlich jede Tool-Ausführung als JSON-Zeile auf stdout (Parameter ohne Secrets).
 - **Unklarer Zustand:** Läuft ein Schreibvorgang in einen Timeout oder bricht die Verbindung ab, meldet das Tool das ausdrücklich. Es wird nie automatisch wiederholt; zuerst den Ist-Zustand lesen. HTTP 429 (nicht ausgeführt) wird nach `Retry-After` höchstens dreimal wiederholt.
-- **Keine Secrets in Ausgaben und Logs.** Passphrasen, Passwörter, Shared Secrets und Schlüssel werden maskiert. Bekannte Secret-Werte (alle Keys und Tokens aus der Umgebung) werden zusätzlich aus allen Fehlermeldungen entfernt. Fehlermeldungen enthalten nur Statuscode und Fehlercode der API.
+- **Keine Secrets in Ausgaben und Logs.** Passphrasen, Passwörter, Shared Secrets und Schlüssel werden maskiert, ebenso alle Felder der Legacy-API mit Präfix `x_`. Bekannte Secret-Werte (alle Keys und Tokens aus der Umgebung) werden zusätzlich aus allen Fehlermeldungen entfernt. Fehlermeldungen enthalten nur Statuscode und Fehlercode der API.
 - **TLS immer geprüft.** Bei selbstsigniertem Zertifikat wird mit `tls_fingerprint` gepinnt: Der Dienst holt das Zertifikat, vergleicht den SHA-256-Fingerabdruck und baut danach nur Verbindungen auf, die genau diesem Zertifikat vertrauen. Ein anderes Zertifikat scheitert beim TLS-Handshake, bevor der API-Key gesendet wird. Eine Option zum Abschalten der Prüfung gibt es nicht.
 - **Rate-Limit auf den MCP-Endpunkt:** begrenzt Requests mit gültigem Token (Schutz bei geleaktem Token) und fehlgeschlagene Anmeldungen.
 - **Bearer-Auth** mit Konstantzeit-Vergleich, auch für `/healthz`. Kein OAuth.

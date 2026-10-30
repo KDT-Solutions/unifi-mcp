@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Legacy-API auch über den Cloud-Connector: `mode: cloud` mit `legacy_enabled: true` und ohne `base_url` nutzt den Site-Manager-Key, ohne lokalen Benutzer und ohne direkte Erreichbarkeit der Konsole. Pfad-Präfix (`/proxy/network` oder `/network`) wird lesend ermittelt.
+- Neues Tool `hotspot_settings`: Hotspot-/Gastportal einer Site inkl. Pre-Authorization-Freigaben.
+- Neue Planart `guest_access.update` für `prepare_change` (mit Diff, Sicherung und Rollback).
+- Alle Felder der Legacy-API mit Präfix `x_` gelten als Secret und werden maskiert.
+
 ## 0.2.2
 
 - `console_id` im UUID-Format (mit Bindestrichen) wird akzeptiert; `GET /v1/hosts` liefert beide Formen.

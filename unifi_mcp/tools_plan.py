@@ -37,6 +37,7 @@ class Kind:
     op: str             # create | update
     label: str
     required: tuple[str, ...] = ()
+    singleton: bool = False  # genau ein Objekt pro Site (Einstellungsbereich), target optional
 
 
 KINDS: dict[str, Kind] = {
@@ -50,8 +51,11 @@ KINDS: dict[str, Kind] = {
     "port_forward.create": Kind("legacy", "rest/portforward", "create", "Portweiterleitung anlegen",
                                 ("name", "dst_port", "fwd", "fwd_port", "proto")),
     "port_forward.update": Kind("legacy", "rest/portforward", "update", "Portweiterleitung ändern"),
+    "guest_access.update": Kind("legacy", "rest/setting/guest_access", "update",
+                                "Hotspot-/Gastportal-Einstellungen ändern", singleton=True),
 }
-LIST_PATHS = {"rest/portforward": "list/portforward"}
+LIST_PATHS = {"rest/portforward": "list/portforward", "rest/setting/guest_access": "rest/setting"}
+SETTING_PREFIX = "rest/setting/"
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +124,11 @@ async def load_items(rt, c: Console, site: dict[str, Any], kind: Kind) -> list[d
         items, _ = await rt.network(c).list_all(f"/v1/sites/{site['id']}/{kind.collection}")
         return items
     rows = await rt.legacy(c).request("GET", site["internalReference"], LIST_PATHS[kind.collection], cache=False)
-    return [r for r in rows or [] if isinstance(r, dict)]
+    items = [r for r in rows or [] if isinstance(r, dict)]
+    if kind.collection.startswith(SETTING_PREFIX):
+        section = kind.collection[len(SETTING_PREFIX):]
+        items = [r for r in items if r.get("key") == section]
+    return items
 
 
 async def load_current(rt, c: Console, site: dict[str, Any], kind: Kind, target_id: str) -> dict[str, Any]:
@@ -172,6 +180,17 @@ def validate_create(kind_name: str, kind: Kind, body: dict[str, Any], items: lis
     return warnings
 
 
+def update_warnings(kind_name: str, changes: dict[str, Any]) -> list[str]:
+    if kind_name == "guest_access.update":
+        text = json.dumps(changes).lower()
+        warnings = ["Gilt für alle Hotspot-/Gast-WLANs der Site."]
+        if "allowed" in text or "pre_auth" in text or "preauth" in text:
+            warnings.append("Pre-Authorization-Freigaben sind ohne Portal-Anmeldung erreichbar - nur einzelne Ziele "
+                            "freigeben, keine ganzen internen Netze.")
+        return warnings
+    return []
+
+
 def apply_passphrase(before: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
     if set(changes) != {"passphrase"}:
         raise GuardError("wlan.set_passphrase: changes = {\"passphrase\": \"...\"}")
@@ -202,9 +221,11 @@ async def prepare_change(console: str, kind: str, changes: dict[str, Any], targe
     """Heikle Änderung vorbereiten, ohne etwas zu ändern. Liefert Vorher/Nachher-Diff und eine Plan-ID
     (gültig 15 Minuten), ausführen mit execute_plan.
     kind: firewall_policy.create, firewall_policy.update, network.create (VLAN anlegen), network.update,
-    wlan.update, wlan.set_passphrase, port_forward.create, port_forward.update (Portweiterleitungen nur
-    mit Legacy-API).
-    target: ID oder Name des bestehenden Objekts (bei *.update), bei WLANs die SSID.
+    wlan.update, wlan.set_passphrase, port_forward.create, port_forward.update, guest_access.update
+    (Hotspot-/Gastportal inkl. Pre-Authorization-Freigaben, Felder wie hotspot_settings sie zeigt;
+    Portweiterleitungen und guest_access nur mit Legacy-API).
+    target: ID oder Name des bestehenden Objekts (bei *.update), bei WLANs die SSID; bei
+    guest_access.update nicht nötig.
     changes: bei *.create das vollständige Objekt im Format der API; bei *.update nur die zu ändernden
     Felder (verschachtelte Objekte werden zusammengeführt, Listen ersetzt); bei wlan.set_passphrase
     {"passphrase": "..."}. Passwörter erscheinen im Diff nur als ***."""
@@ -229,14 +250,22 @@ async def prepare_change(console: str, kind: str, changes: dict[str, Any], targe
         warnings = validate_create(kind, spec, after, items)
         target_id, target_name = "", str(after.get("name", ""))
     else:
-        if not target:
-            raise GuardError("target: ID oder Name des Objekts angeben")
-        found = resolve.pick(items, target, spec.label.split()[0])
+        if spec.singleton:
+            if "key" in changes:
+                raise GuardError("changes: Feld 'key' (Einstellungsbereich) ist nicht änderbar")
+            if len(items) != 1:
+                raise GuardError(f"{spec.label}: {len(items)} Einträge statt genau einem gefunden - nichts geplant")
+            found = items[0]
+        else:
+            if not target:
+                raise GuardError("target: ID oder Name des Objekts angeben")
+            found = resolve.pick(items, target, spec.label.split()[0])
         target_id = found.get("id") or found.get("_id")
         current = await load_current(rt, c, s, spec, target_id)
         before = strip_readonly(current)
         after = apply_passphrase(before, changes) if kind == "wlan.set_passphrase" else deep_merge(before, changes)
-        target_name = str(current.get("name", target_id))
+        target_name = str(current.get("name") or current.get("key") or target_id)
+        warnings = update_warnings(kind, changes)
         if kind == "wlan.update" and "passphrase" in json.dumps(changes):
             raise GuardError("Passphrase bitte mit kind wlan.set_passphrase ändern")
         if kind == "network.update" and current.get("default") and "vlanId" in changes:

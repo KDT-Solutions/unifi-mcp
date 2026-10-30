@@ -643,6 +643,31 @@ async def list_firewall_rules(console: str, site: str | None = None, include_pre
 
 
 @tool(annotations=READ_ONLY)
+async def hotspot_settings(console: str, site: str | None = None) -> dict[str, Any]:
+    """Einstellungen des Hotspot-/Gastportals einer Site (Legacy-Einstellungsbereich guest_access):
+    Portal ein/aus, Anmeldeart, Ablauf, Weiterleitung sowie die Pre-Authorization-Freigaben (Ziele, die
+    Gäste vor der Portal-Anmeldung erreichen) und Post-Authorization-Sperren. Felder unverändert im Format
+    der API; Secrets (alle x_-Felder, z.B. Portal-Passwort, Zahlungs-Keys) maskiert. Ändern mit
+    prepare_change(kind="guest_access.update"). Nur mit legacy_enabled. Nur lesen."""
+    rt = runtime()
+    c = rt.find(console)
+    legacy = rt.legacy(c)
+    s = await resolve.site(rt.network(c), c, site)
+    rows = await legacy.request("GET", s["internalReference"], "rest/setting", cache=False)
+    sections = [r for r in rows or [] if isinstance(r, dict) and r.get("key") == "guest_access"]
+    if not sections:
+        raise GuardError("Einstellungsbereich guest_access nicht gefunden")
+    data = sections[0]
+    allowed = {k: v for k, v in data.items() if "allow" in k.lower() or "pre_auth" in k.lower()}
+    restricted = {k: v for k, v in data.items() if "restrict" in k.lower()}
+    return {
+        "console": c.name, "site": s.get("name"), "id": data.get("_id"),
+        "pre_authorization_fields": mask_secrets(allowed), "post_authorization_fields": mask_secrets(restricted),
+        "settings": mask_secrets(data),
+    }
+
+
+@tool(annotations=READ_ONLY)
 async def list_vpn(console: str, site: str | None = None) -> dict[str, Any]:
     """VPN-Server (WireGuard, OpenVPN, L2TP, ...) und Site-to-Site-Tunnel einer Site mit Typ und ob aktiviert.
     Einen Verbindungsstatus der Tunnel liefert die offizielle API nicht."""

@@ -70,6 +70,11 @@ class Console:
     legacy_password_env: str = ""
     site_manager_key_env: str = DEFAULT_SITE_MANAGER_KEY_ENV
 
+    @property
+    def legacy_via_connector(self) -> bool:
+        """Legacy-API über den Cloud-Connector (Site-Manager-Key, ohne Login) statt direkt zur Konsole."""
+        return self.legacy_enabled and self.mode == "cloud" and not self.base_url
+
     def public(self) -> dict:
         """Darstellung ohne Secrets (Variablennamen sind keine Secrets, werden aber nicht ausgegeben)."""
         return {
@@ -79,6 +84,7 @@ class Console:
             "base_url": self.base_url or None,
             "tls_pinned": bool(self.tls_fingerprint),
             "legacy_enabled": self.legacy_enabled,
+            "legacy_via": ("connector" if self.legacy_via_connector else "direct") if self.legacy_enabled else None,
             "site_manager_account": self.site_manager_key_env,
         }
 
@@ -124,10 +130,16 @@ def _parse_console(raw: object, index: int) -> Console:
             raise ConfigError(f"{where}: '{key}' muss true oder false sein")
     legacy = raw.get("legacy_enabled", False)
     if legacy:
-        if not base_url:
+        # cloud ohne base_url: Legacy-API über den Cloud-Connector mit dem Site-Manager-Key.
+        # Sonst direkt zur Konsole mit lokalem Benutzer.
+        if base_url:
+            if not raw.get("legacy_username_env") or not raw.get("legacy_password_env"):
+                raise ConfigError(f"{where}: Legacy-API direkt braucht 'legacy_username_env' und 'legacy_password_env'")
+        elif mode != "cloud":
             raise ConfigError(f"{where}: Legacy-API braucht 'base_url' (direkter Zugriff auf die Konsole)")
-        if not raw.get("legacy_username_env") or not raw.get("legacy_password_env"):
-            raise ConfigError(f"{where}: Legacy-API braucht 'legacy_username_env' und 'legacy_password_env'")
+        elif raw.get("legacy_username_env") or raw.get("legacy_password_env"):
+            raise ConfigError(f"{where}: Legacy über den Cloud-Connector braucht keinen Benutzer - "
+                              "'legacy_username_env'/'legacy_password_env' nur zusammen mit 'base_url'")
     fingerprint = raw.get("tls_fingerprint") or ""
     if not isinstance(fingerprint, str):
         raise ConfigError(f"{where}: 'tls_fingerprint' muss ein Text sein")

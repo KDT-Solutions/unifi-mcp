@@ -127,7 +127,7 @@ class Runtime:
                 "Legacy-API verfügbar, die für diese Konsole nicht aktiviert ist (legacy_enabled)."
             )
         if console.name not in self._legacy:
-            self._legacy[console.name] = LegacyClient(console, self.cache)
+            self._legacy[console.name] = LegacyClient(console, self.cache, self.settings)
         return self._legacy[console.name]
 
     def writes_enabled(self, console: Console) -> bool:

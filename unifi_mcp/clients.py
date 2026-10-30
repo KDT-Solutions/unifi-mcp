@@ -10,9 +10,13 @@ Network Integration API (https://developer.ui.com/network/v11.0.97), Header X-AP
 - direct: https://{konsole}/proxy/network/integration  (Key aus der Network-App der Konsole)
 - Listen: offset/limit (max. 200) und filter, Antwort {offset, limit, count, totalCount, data}
 
-Legacy-API (nicht offiziell dokumentiert, nur Fallback, nur direkt zur Konsole):
-- POST /api/auth/login, danach Cookie + X-CSRF-Token
-- /proxy/network/api/s/{site}/...  Antwort {"meta": {"rc": "ok"}, "data": [...]}
+Legacy-API (nicht offiziell dokumentiert, nur Fallback):
+- direkt: POST /api/auth/login, danach Cookie + X-CSRF-Token
+- direkt: /proxy/network/api/s/{site}/...  Antwort {"meta": {"rc": "ok"}, "data": [...]}
+- Cloud-Connector: https://api.ui.com/v1/connector/consoles/{consoleId}{prefix}/api/s/{site}/...
+  mit X-API-Key (Site-Manager-Key), ohne Login. Der Pfad-Präfix ist nicht offiziell dokumentiert:
+  zuerst /proxy/network (wie bei der Integration API), sonst /network (so nutzt es der
+  Art-of-WiFi-Client). Ermittelt wird er mit einem lesenden Aufruf, danach gemerkt.
 """
 
 from __future__ import annotations
@@ -199,16 +203,26 @@ class NetworkClient:
             self._client = None
 
 
+CONNECTOR_LEGACY_PREFIXES = ("/proxy/network", "/network")
+
+
 class LegacyClient:
-    """Alte, nicht offiziell dokumentierte API der Network-App (Benutzername/Passwort).
+    """Alte, nicht offiziell dokumentierte API der Network-App. Direkt mit Benutzername/Passwort
+    oder über den Cloud-Connector mit dem Site-Manager-Key.
     Nur für Funktionen, die die Integration API nicht bietet, nur mit legacy_enabled."""
 
-    def __init__(self, console: Console, cache: TtlCache):
+    def __init__(self, console: Console, cache: TtlCache, settings: Settings | None = None):
         self.console = console
         self.cache = cache
+        self.settings = settings
         self._client: httpx.AsyncClient | None = None
         self._csrf = ""
+        self._prefix: str | None = None
         self._lock = asyncio.Lock()
+
+    @property
+    def via_connector(self) -> bool:
+        return self.console.legacy_via_connector
 
     @property
     def scope(self) -> str:
@@ -218,6 +232,8 @@ class LegacyClient:
         return f"Legacy-API '{self.console.name}'"
 
     async def _http(self) -> httpx.AsyncClient:
+        if self._client is None and self.via_connector:
+            self._client = httpx.AsyncClient(verify=True, trust_env=True)
         if self._client is None:
             verify: Any = True
             if self.console.tls_fingerprint:
@@ -247,12 +263,16 @@ class LegacyClient:
                       read: bool | None = None) -> Any:
         """read=True: lesender Aufruf trotz POST (z.B. stat/event mit Filter im Body)."""
         is_read = method == "GET" if read is None else read
-        url = f"/proxy/network/api/s/{quote(site, safe='')}/{path.lstrip('/')}"
+        sub = f"/api/s/{quote(site, safe='')}/{path.lstrip('/')}"
+        url = "/proxy/network" + sub
         key = (self.scope, method, url, repr(json))
         if is_read and cache:
             hit = self.cache.get(key)
             if hit is not None:
                 return hit
+        if self.via_connector:
+            body = await self._connector_request(method, site, sub, json, is_read)
+            return self._result(body, key, is_read, cache)
         async with self._lock:
             client = await self._http()
             if not client.cookies:
@@ -272,6 +292,55 @@ class LegacyClient:
                     continue
                 break
         body = decode(resp, self._label())
+        return self._result(body, key, is_read, cache)
+
+    # -- Cloud-Connector ----------------------------------------------------
+
+    def _connector_base(self) -> str:
+        base = self.settings.site_manager_url if self.settings else "https://api.ui.com"
+        return f"{base}/v1/connector/consoles/{quote(self.console.console_id, safe=':')}"
+
+    def _connector_headers(self) -> dict[str, str]:
+        key = _env(self.console.site_manager_key_env, f"Konsole '{self.console.name}'")
+        return {"X-API-Key": key, "Accept": "application/json"}
+
+    @staticmethod
+    def _is_api_answer(resp: httpx.Response) -> bool:
+        """Antwort der Legacy-API (JSON, kein 404). Ein falscher Präfix liefert 404 oder die
+        HTML-Seite der Web-Oberfläche."""
+        if resp.status_code == 404:
+            return False
+        return "json" in resp.headers.get("content-type", "").lower() or not resp.content
+
+    async def _connector_send(self, method: str, prefix: str, sub: str, json: Any, is_read: bool) -> httpx.Response:
+        return await send(await self._http(), method, self._connector_base() + prefix + sub, label=self._label(),
+                          headers=self._connector_headers(), json=json, timeout=CONNECTOR_TIMEOUT, read=is_read)
+
+    async def _detect_prefix(self, site: str) -> str:
+        """Präfix mit einem lesenden Aufruf (api/s/{site}/self) ermitteln, nie mit einem schreibenden."""
+        probe = f"/api/s/{quote(site, safe='')}/self"
+        for prefix in CONNECTOR_LEGACY_PREFIXES:
+            resp = await self._connector_send("GET", prefix, probe, None, True)
+            if self._is_api_answer(resp):
+                if resp.status_code in (401, 403):
+                    raise ApiError(transport.error_message(resp, self._label()) +
+                                   " - der Site-Manager-Key hat keinen Zugriff auf die Legacy-API dieser Konsole",
+                                   resp.status_code)
+                return prefix
+        raise ApiError(f"{self._label()}: Legacy-API über den Cloud-Connector nicht erreichbar "
+                       f"(Präfixe {', '.join(CONNECTOR_LEGACY_PREFIXES)} geprüft)")
+
+    async def _connector_request(self, method: str, site: str, sub: str, json: Any, is_read: bool) -> Any:
+        async with self._lock:
+            if self._prefix is None:
+                self._prefix = await self._detect_prefix(site)
+            prefix = self._prefix
+        resp = await self._connector_send(method, prefix, sub, json, is_read)
+        return decode(resp, self._label())
+
+    # -- Auswertung ---------------------------------------------------------
+
+    def _result(self, body: Any, key: tuple, is_read: bool, cache: bool) -> Any:
         meta = (body or {}).get("meta") if isinstance(body, dict) else None
         if isinstance(meta, dict) and meta.get("rc") not in (None, "ok"):
             raise ApiError(f"{self._label()}: {transport.clean_text(str(meta.get('msg') or 'Fehler'), 200)}")
